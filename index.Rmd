@@ -1,0 +1,15 @@
+---
+title: "ETC5523 Assignment 3"
+author: "Ibrahim Al-Hindi"
+date: "`r Sys.Date()`"
+output: 
+  bookdown::html_document2
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+library(tidyverse)
+```
+
+```{r child=c("Q1.Rmd", "Q2.Rmd", "Q3.Rmd", "Q4.Rmd")}
+```

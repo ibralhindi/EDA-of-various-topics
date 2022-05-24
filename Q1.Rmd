@@ -1,0 +1,528 @@
+---
+title: "Exercise 1"
+date: "`r Sys.Date()`"
+output: 
+  bookdown::html_document2
+---
+
+# Exercise 1
+
+```{r}
+library(tidyverse)
+library(janitor)
+library(kableExtra)
+library(tidytext)
+```
+
+```{r}
+# load data and create "role" column to identify roles when the data is combined
+da <- read_csv("data/DataAnalyst.csv") %>% mutate(role = "Data Analyst")
+ba <- read_csv("data/BusinessAnalyst.csv") %>% mutate(role = "Business Analyst")
+ds <- read_csv("data/DataScientist.csv") %>% mutate(role = "Data Scientist")
+
+# combine into one dataframe and change "role" to factor
+combined <- rbind(da, ba, ds) %>% 
+  mutate(role = factor(role))
+```
+
+## Question a
+
+The names of the columns will be adjusted to a correct format
+
+```{r}
+combined <- clean_names(combined)
+```
+
+The following variables will be examined and edited if necessary
+
+### `salary_estimate`
+
+The information contained in `salary_estimate` will be used to create four new columns:
+
+- `min_salary`: the minimum salary in the salary range. Missing will be set to "-1". Numeric
+- `max_salary`: the maximum salary in the salary range. Missing will be set to "-1". Numeric
+- `basis`: per annum or per hour. Missing will be set to "-1". Factor
+- `source`: provided by Glassdoor or Employer. Missing will be set to "-1". Factor
+
+```{r}
+combined <- combined %>% 
+  mutate(min_salary = as.numeric(ifelse(salary_estimate == -1, -1, str_extract(salary_estimate, "(?<=^\\$)\\d{1,3}"))),
+         max_salary = as.numeric(ifelse(salary_estimate == -1, -1, str_extract(salary_estimate, "(?<=-\\$)\\d{1,3}"))),
+         salary_basis = as.factor(case_when
+                                  (str_detect(salary_estimate, "Hour") ~ "hourly",
+                                    salary_estimate == -1 ~ "-1",
+                                    TRUE ~ "annual")),
+         salary_source = as.factor(case_when
+                                   (str_detect(salary_estimate, "Employer") ~ "Employer",
+                                     salary_estimate == -1 ~ "-1",
+                                     TRUE ~ "Glassdoor")),
+         .after = salary_estimate) %>%
+  
+  # multiply the min_salary and max_salary by 1,000 if the salary_basis is annual
+  mutate(min_salary = ifelse(salary_basis == "annual", min_salary * 1000, min_salary),
+         max_salary = ifelse(salary_basis == "annual", max_salary * 1000, max_salary))
+```
+
+Check the salary ranges are valid and reasonable for each of annually and hourly
+
+```{r}
+combined %>% filter(salary_estimate != "-1") %>% 
+  group_by(salary_basis) %>% 
+  summarise(min_salary_minimum = min(min_salary),
+            min_salary_maximum = max(min_salary),
+            max_salary_minimum = min(max_salary),
+            max_salary_maximum = max(max_salary)) %>% 
+  kable(col.names = c("basis", "minimum min_salary", "maximum min_salary", "minimum max_salary", "maximum max_salary"),
+        format.args = list(big.mark = ',')) %>% 
+  kable_styling(bootstrap_options = c("striped", "hover"))
+  
+```
+
+The salary ranges for both on a per annum and per hour basis are valid and reasonable
+
+### `rating`
+
+The range of `rating` will be checked to be between 1 and 5 after removing observations with a missing rating
+
+```{r}
+combined %>% filter(rating != -1) %>% 
+  summarise(minimum = min(rating),
+            maximum = max(rating)) %>% 
+  kable() %>% 
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+The ratings are in the valid range. No edits are necessary
+
+### `company_name`
+
+If the rating for a row is provided, the company name under `company_name` includes the rating for that company at the end of the name. This rating will be removed from the name. The name and the rating are separated by a new line character
+
+```{r}
+combined <- combined %>%
+  mutate(company_name = str_remove(company_name, "\\n.*"))
+```
+
+### `location`
+
+`location` will be split to create a column that contains the city and initials of the state separately
+
+```{r}
+combined <- combined %>%
+  separate(location, c("city", "state"), sep = ", ")
+```
+
+The unique values of `state` will be examined
+
+```{r}
+unique(combined$state)
+```
+The following adjustments will be made:
+
+1. **Arapahoe** will be switched to "CO" since it is part of Colorado
+2. **Los Angeles** will be switched to "CA" since it is part of California
+3. Jobs in the **United Kingdom** will be removed
+
+```{r}
+combined <- combined %>%
+  filter(state != "United Kingdom") %>%
+  mutate(state = case_when(
+    state == "Arapahoe" ~ "CO",
+    state == "Los Angeles" ~ "CA",
+    TRUE ~ state))
+```
+
+
+### `size`
+
+`size` will be converted to an ordinal factor
+
+```{r}
+unique(combined$size)
+```
+
+```{r}
+combined <- combined %>% 
+  mutate(size = factor(size, levels = c( "Unknown", "1 to 50 employees", "51 to 200 employees", "201 to 500 employees", "501 to 1000 employees", "1001 to 5000 employees", "5001 to 10000 employees", "10000+ employees", "-1")))
+```
+
+
+### `founded`
+
+`founded` will be checked to be in a reasonable range after filtering out observations with missing values
+
+```{r}
+combined %>% filter(founded != -1) %>% 
+  summarise(minimum = min(founded),
+            maximum = max(founded))
+```
+
+The oldest company in the data is quite old. Let us examine this company
+
+```{r}
+combined %>% filter(founded == 1625) %>% 
+  pull(company_name) %>% 
+  unique()
+```
+
+It is reasonable that the City of New York is that old. Therefore, no changes will be made to `founded`.
+
+### `revenue`
+
+`revenue` will be converted to an ordinal factor
+
+```{r}
+unique(combined$revenue)
+```
+
+```{r}
+combined <- combined %>% 
+  mutate(revenue = factor(revenue, levels = c("Less than $1 million (USD)", "$1 to $5 million (USD)", "$5 to $10 million (USD)", "$10 to $25 million (USD)", "$25 to $50 million (USD)", "$50 to $100 million (USD)", "$100 to $500 million (USD)", "$500 million to $1 billion (USD)", "$1 to $2 billion (USD)", "$2 to $5 billion (USD)", "$5 to $10 billion (USD)", "$10+ billion (USD)", "Unknown / Non-Applicable", "-1")))
+```
+
+
+### `easy_apply`
+
+`easy_apply` that are easy will be changed from "TRUE" to "yes" to avoid possible impacts to future codes, it will also be changed to a factor
+
+```{r}
+combined <- combined %>% 
+  mutate(easy_apply = factor(ifelse(easy_apply == "TRUE", "yes", easy_apply)))
+```
+
+## Question b
+
+There are `r sum(combined$salary_basis == "hourly")` job listings that provide salary intervals on a per hour basis
+
+## question c
+
+### i. Salary Intervals
+
+The salary intervals between the different roles will now be compared. For the purposes of our analysis, only annual figures will be considered.
+
+```{r sal-range-role, fig.cap = "Annual salary range per role. Data Scientists have the largest range"}
+combined_sal <- combined %>% 
+  filter(salary_estimate != "-1",
+         salary_basis == "annual") %>% 
+  group_by(role) %>% 
+  summarise(range = c(min_salary,max_salary),
+            minimum = min(min_salary),
+            maximum = max(max_salary)) %>% 
+  ungroup()
+
+combined_sal_lab <- combined_sal %>% 
+  group_by(role) %>% 
+  summarise(minimum = min(minimum),
+            maximum = max(maximum))
+  
+ggplot(combined_sal, aes(role)) +
+geom_violin(aes(y = range/1000), fill = "pink") +
+geom_boxplot(aes(y = range/1000), color = "red", width = .2) +
+geom_text(data = combined_sal_lab, aes(y = minimum/1000, label = scales::dollar(minimum)), nudge_y = -10) + 
+geom_text(data = combined_sal_lab, aes(y = maximum/1000, label = scales::dollar(maximum)), nudge_y = 13) + 
+scale_y_continuous(breaks = seq(0, 250, 50)) +
+theme_classic() +
+labs(x = "Role",
+     y = "Annual Salary Range ('000 $)",
+     title = "Annual Salary Range per Role") +
+theme(axis.text = element_text(size = 10))
+```
+
+
+\@ref(fig:sal-range-role) shows that Data Scientists have the largest range and furthest extremes regarding the annual salary by possessing the lowest possible salary at $12,000 and the highest possible salary at $254,000. While business and data analysts possess a similar lowest salary at $27,000 and $24,000, respectively, business analysts have a higher possible salary at $226,000 compared to $190,000 that can be earned by data analysts. In addition, data scientists have a higher median salary at `r scales::dollar(median((combined_sal %>% filter(role == "Data Scientist"))$range))` versus `r scales::dollar(median((combined_sal %>% filter(role == "Business Analyst"))$range))` and `r scales::dollar(median((combined_sal %>% filter(role == "Data Analyst"))$range))` earned by business and data analysts, respectively. Furthermore, while the salaries for business and data analysts are concentrated towards the lower part of the range, the salary range for data scientists is more evenly distributed
+
+The salary intervals minimums and maximums will now be analysed. We will start with the minimum salary range
+
+```{r, min-sal-range-role, fig.cap = "Annual minimum salary range per role. Data Scientists have the largest range"}
+combined_sal_min <- combined %>%
+  filter(salary_estimate != "-1",
+         salary_basis == "annual") %>% 
+  group_by(role) %>% 
+  summarise(minimum = min(min_salary),
+            maximum = max(min_salary))
+
+
+combined %>%
+  filter(salary_estimate != "-1",
+         salary_basis == "annual") %>% 
+  ggplot(aes(role)) +
+  geom_violin(aes(y = min_salary/1000), fill = "pink") +
+  geom_boxplot(aes(y = min_salary/1000), color = "red", width = .2) +
+  geom_text(data = combined_sal_min, aes(y = minimum/1000, label = scales::dollar(minimum)), nudge_y = -10) + 
+  geom_text(data = combined_sal_min, aes(y = maximum/1000, label = scales::dollar(maximum)), nudge_y = 13) + 
+  scale_y_continuous(breaks = seq(0, 200, 50)) +
+  theme_classic() +
+  labs(x = "Role",
+       y = "Annual Minimum Salary Range ('000 $)",
+       title = "Annual Minimum Salary Range per Role") +
+  theme(axis.text = element_text(size = 10))
+```
+
+\@ref(fig:min-sal-range-role) echoes the observations made in \@ref(fig:sal-range-role), we again see that the data scientists have the largest range in terms of minimum salary, while business and data analysts are very similar. Data scientists have a higher median minimum salary at `r scales::dollar(median((combined %>% filter(salary_estimate != "-1", salary_basis == "annual", role == "Data Scientist"))$min_salary))` versus `r scales::dollar(median((combined %>% filter(salary_estimate != "-1", salary_basis == "annual", role == "Business Analyst"))$min_salary))` and `r scales::dollar(median((combined %>% filter(salary_estimate != "-1", salary_basis == "annual", role == "Data Analyst"))$min_salary))` made by business and data analysts, respectively. We also note that the minimum salaries are concentrated towards the lower end of the scale for business and data analysts, while the range of minimum salaries for data scientists is more spread out.
+
+We will now examine the maximum salary range
+
+
+```{r, max-sal-range-role, fig.cap = "Annual maximum salary range per role. Data Scientists are the highest earners once again"}
+combined_sal_max <- combined %>%
+  filter(salary_estimate != "-1",
+         salary_basis == "annual") %>% 
+  group_by(role) %>% 
+  summarise(minimum = min(max_salary),
+            maximum = max(max_salary))
+
+
+combined %>%
+  filter(salary_estimate != "-1",
+         salary_basis == "annual") %>% 
+  ggplot(aes(role)) +
+  geom_violin(aes(y = max_salary/1000), fill = "pink") +
+  geom_boxplot(aes(y = max_salary/1000), color = "red", width = .2) +
+  geom_text(data = combined_sal_max, aes(y = minimum/1000, label = scales::dollar(minimum)), nudge_y = -10) + 
+  geom_text(data = combined_sal_max, aes(y = maximum/1000, label = scales::dollar(maximum)), nudge_y = 13) + 
+  scale_y_continuous(breaks = seq(0, 250, 50)) +
+  theme_classic() +
+  labs(x = "Role",
+       y = "Annual Maximum Salary Range ('000 $)",
+       title = "Annual Maximum Salary Range per Role") +
+  theme(axis.text = element_text(size = 10))
+```
+
+According to \@ref(fig:max-sal-range-role), data analysts have the lowest maximum salary at $38,000, while data scienstists have the highest maximum salary at $56,000. Similar to the previous two graphs, the maximum salary range for business analysts is concentrated at the lower end of the scale, the maximum salary range for data analysts is more normally distributed than the previous two plots, and the range for data scientists is evenly distributed. Data scientists also possess the highest median maximum salary at `r scales::dollar(median((combined %>% filter(salary_estimate != "-1", salary_basis == "annual", role == "Data Scientist"))$max_salary))` versus `r scales::dollar(median((combined %>% filter(salary_estimate != "-1", salary_basis == "annual", role == "Business Analyst"))$max_salary))` made by business and data analysts.
+
+Based on all the above, it seems that data science roles are the best concerning salary.
+
+
+### ii. Location of the Job
+
+The states with the highest number of jobs per role will be studied.
+
+```{r jobs-state, fig.cap="Number of jobs by state per role. California and Texas have the highest number of jobs"}
+combined %>% 
+  count(role, state) %>%
+  mutate(state = case_when
+         (role %in% c("Business Analyst", "Data Scientist") & n < 1000 ~ "Other",
+           role == "Data Analyst" & n < 250 ~ "Other",
+         TRUE ~ state)) %>% 
+  ggplot(aes(n, reorder_within(state, n, role), fill = role)) +
+  geom_col(show.legend = FALSE) +
+  scale_y_reordered() +
+  scale_x_continuous(breaks = seq(0, 1750, 250),
+                     labels = scales::label_comma()) +
+  facet_wrap(vars(role), scales = "free_y", ncol = 1) +
+  theme_minimal() +
+  labs(x = "Number of Jobs",
+       y = "State",
+       title = "Number of Jobs by State per Role")
+```
+
+According to \@ref(fig:jobs-state), Texas and California dominate the number of jobs in terms of state. Business analysts and Data scientists are very similar regarding the number of jobs per state, while data analysts have much fewer job numbers.
+
+### iii. Company Size
+
+Jobs according to company size will now be analysed.
+
+```{r jobs-size, fig.cap="Number of jobs per company size per role. Data analysts have fewer jobs than business analysts and data scientists"}
+combined %>% 
+  filter(size != "-1") %>% 
+  ggplot(aes(size, fill = role)) +
+  geom_bar(position = position_dodge()) +
+  facet_wrap(vars(size), scales = "free_x") +
+  scale_y_continuous(labels = scales::label_comma()) +
+  theme_minimal() +
+  theme(legend.position = c(.8, .15),
+        axis.text.x = element_blank(),
+        axis.title.x = element_blank()) +
+  labs(y = "Number of Jobs",
+       title = "Number of Jobs per Role per Size",
+       fill = "Role")
+```
+
+\@ref(fig:jobs-size) shows that data analysts are not as in demand as the other two roles in all company sizes.
+
+
+```{r jobs-size2, fig.cap="Number of jobs per company size per role. Data scientists generally work in companies with large numbers of employees, business and data analysists are more spread out"}
+combined %>%
+  filter(size != "-1") %>%
+  count(role, size) %>% 
+  ggplot(aes(n, size, fill = role)) +
+  geom_col(show.legend = FALSE) +
+  scale_x_continuous(labels = scales::label_comma()) +
+  facet_wrap(vars(role), ncol = 1) +
+  theme_minimal() +
+  labs(x = "Number of Jobs",
+       y = "Company Size",
+       title = "Number of Jobs by Company Size per Role")
+```
+
+\@ref(fig:jobs-size2) shows that data scientists generally work in companies with a large number of employees, while the other two roles are more spread out in terms of company size. Data analysts are not as in demand as business analysts and data scientists.
+
+### iv. Industry
+
+The number of jobs per industry will be studied.
+
+```{r jobs-industry, fig.cap="Number of jobs per top ten industries per role. IT Services and Staffing & Outsourcing are the most common industries"}
+combined %>% 
+  filter(industry != "-1") %>% 
+  group_by(role, industry) %>% 
+  tally() %>% 
+  slice_max(order_by = n, n = 10) %>% 
+  ggplot(aes(n, reorder_within(industry, n, role), fill = role)) +
+  geom_col(show.legend = FALSE) +
+  scale_y_reordered() +
+  scale_x_continuous(breaks = seq(0, 600, 150)) +
+  facet_wrap(vars(role), scales = "free_y", ncol = 1) +
+  theme_minimal() +
+  labs(x = "Number of Jobs",
+       y = "Industry",
+       title = "Number of Jobs per Top Ten Industries per Role")
+```
+
+Per \@ref(fig:jobs-industry), the **IT Services** and **Staffing & Outsourcing** are the most common industries across all the roles, this is especially true for business and data analyst jobs, data scientists, meanwhile, are more concentrated in the IT Services industry.
+
+
+### v. Sector
+
+The number of jobs per sector will be compared.
+
+```{r jobs-sector, fig.cap="Number of jobs per sector per role. Information Technology and Business Services dominate the sectors"}
+combined %>% 
+  filter(sector != "-1") %>% 
+  count(role, sector) %>%
+  mutate(sector = ifelse(sector %in% c("Information Technology", "Business Services"), sector, "Other")) %>%
+  ggplot(aes(n, reorder_within(sector, n, role), fill = role)) +
+  geom_col(show.legend = FALSE) +
+  scale_y_reordered() +
+  scale_x_continuous(labels = scales::label_comma()) +
+  facet_wrap(vars(role), scales = "free_y", ncol = 1) +
+  theme_minimal() +
+  labs(x = "Number of Jobs",
+       y = "Sector",
+       title = "Number of Jobs per Sector per Role")
+```
+
+
+As shown in \@ref(fig:jobs-sector), **Information Technology** and **Business Services** dominate the sectors across all three roles. Business analysts and data scientists have very similar numbers per sector. Data analyst jobs are almost evenly split between Information Technology and Business Services, followed by all other sectors.
+
+
+## Question d
+
+The salary ranges will be compared according to the source. Our analysis will only include annual figures. First we will compare the salary ranges regardless of role.
+
+
+```{r sal-source, fig.cap="Salary range according to the source. Salary ranges provided by employers tend to be higher"}
+combined_source <- combined %>% 
+  filter(salary_estimate != "-1",
+         salary_basis == "annual") %>%
+  group_by(salary_source) %>% 
+  summarise(range = c(min_salary,max_salary),
+            minimum = min(min_salary),
+            maximum = max(max_salary)) %>% 
+  ungroup()
+
+combined_source_lab <- combined_source %>% 
+  group_by(salary_source) %>% 
+  summarise(minimum = min(minimum),
+            maximum = max(maximum),
+            average = mean(range),
+            median = median(range))
+
+ggplot(combined_source, aes(salary_source)) +
+geom_boxplot(aes(y = range/1000), color = "red") +
+geom_text(data = combined_source_lab, aes(y = minimum/1000, label = scales::dollar(minimum)), nudge_y = -10) +
+geom_text(data = combined_source_lab, aes(y = maximum/1000, label = scales::dollar(maximum)), nudge_y = 13) +
+scale_y_continuous(breaks = seq(0, 250, 50)) +
+theme_classic() +
+labs(x = "Source",
+     y = "Annual Salary Range ('000 $)",
+     title = "Annual Salary Range per Source") +
+theme(axis.text = element_text(size = 10))
+```
+
+It seems that my friend is correct in his assumption that if a salary range is provided by an employer it tends to be large. From \@ref(fig:sal-source) we can see that the median salary provided by employers is `r scales::dollar((combined_source_lab %>% filter(salary_source == "Employer"))$median)` versus `r scales::dollar((combined_source_lab %>% filter(salary_source == "Glassdoor"))$median)` provided by Glassdoor. Moreover, the minimum salary provided by employers is $80,000 versus $12,000 provided by Glassdoor. The maximum salaries provided are similar between the two sources at around $250,000. We also observe that the salary range provided by employers is more distributed towards the higher end of the range versus the range provided by Glassdoor which is more evenly distributed.
+
+We will dig deeper in to the comparison between the two sources by adding the roles into the analysis. There are no data analyst salary ranges provided by employers, therefore only business analysts and data scientists will be compared. 
+
+```{r sal-role-source, fig.cap="Salary range according to the source per role. Salary ranges provided by employers tend to be higher for both roles"}
+combined_source_role <- combined %>% 
+  filter(salary_estimate != "-1",
+         salary_basis == "annual",
+         role != "Data Analyst") %>%
+  group_by(role, salary_source) %>% 
+  summarise(range = c(min_salary,max_salary),
+            minimum = min(min_salary),
+            maximum = max(max_salary)) %>% 
+  ungroup()
+
+combined_role_source_lab <- combined_source_role %>% 
+  group_by(role, salary_source) %>% 
+  summarise(minimum = min(minimum),
+            maximum = max(maximum),
+            average = mean(range),
+            median = median(range))
+
+ggplot(combined_source_role, aes(role, color = salary_source)) +
+geom_boxplot(aes(y = range/1000)) +
+scale_y_continuous(breaks = seq(0, 250, 50)) +
+theme_classic() +
+labs(x = "Role",
+     y = "Annual Salary Range ('000 $)",
+     title = "Annual Salary Range per Role per Source",
+     color = "Source") +
+theme(axis.text = element_text(size = 10))
+```
+
+According to \@ref(fig:sal-role-source), the observation from the previous graph can be applied with segregation by role. Both business analysts and data scientists earn a higher median income when the salary range is provided by the employer. However, business analysts have the potential to earn higher salaries when the salary range is provided by Glassdoor. 
+
+
+## question e
+
+The relationship between state and salary will be studied.
+
+```{r sal-state, fig.cap="Annual salary range per state. CA has the highest median salary"}
+combined_state_sal <- combined %>% 
+  filter(salary_estimate != "-1",
+         salary_basis == "annual") %>% 
+  group_by(state) %>% 
+  summarise(range = c(min_salary,max_salary),
+            median = median(range)) %>% 
+  ungroup()
+
+ggplot(combined_state_sal, aes(range/1000, reorder(state, median))) +
+  geom_boxplot(color = "#20B2AA") +
+  theme_minimal() +
+  labs(x = "Annual Salary Range ('000 $)",
+       y = "State",
+       title = "Annual Salary Range per State") +
+  theme(axis.text = element_text(size = 10))
+```
+
+\@ref(fig:sal-state) suggests that salary is indeed associated with state by noting that the ranges differ widely by state, from a median salary of `r scales::dollar(unique(((combined_state_sal %>% filter(state == "UT"))$median)))` in UT to that of `r scales::dollar(unique(((combined_state_sal %>% filter(state == "CA"))$median)))` in Ca, with a range of different median salaries in between.
+
+
+The relationship between state and sector will be studied.
+
+```{r state-sect, fig.cap="Relationship between states and sectors. Business Services and Information Technology are the dominant sectors in almost all the states"}
+combined_state_sect <- combined %>% 
+  filter(sector != "-1") %>% 
+  group_by(state, sector) %>% 
+  tally() %>% 
+  arrange(state, -n) %>% 
+  mutate(top_sects = ifelse(n %in% c(n[1], n[2]), sector, "Other"))
+
+ggplot(combined_state_sect, aes(reorder_within(top_sects, n, top_sects), n, fill = top_sects)) +
+  geom_col() +
+  facet_wrap(vars(state), scales = "free") +
+  scale_x_reordered() +
+  scale_y_continuous(labels = scales::label_comma()) +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_blank(),
+        axis.title.x = element_blank()) +
+  labs(y = "Number of Jobs",
+       title = "Number of Jobs per State per Sector",
+       fill = "Sector")
+```
+
+
+\@ref(fig:state-sect) shows that there is no particular relationship between state and sector as all the states except for DE, FL, GA and KS, have business services and information technology as two most popular sectors followed by all other sectors.

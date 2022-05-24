@@ -1,0 +1,187 @@
+---
+title: "Exercise 2"
+date: "`r Sys.Date()`"
+output: 
+  bookdown::html_document2
+runtime: shiny
+---
+
+# Exercise 2
+
+```{r}
+library(tidyverse)
+library(fitzRoy)
+library(cassowaryr)
+library(plotly)
+library(shiny)
+```
+
+```{r}
+load("data/aflw_num.rda")
+load("data/aflw.rda")
+load("data/aflw_scags.rda")
+```
+
+## Question a
+
+There are `r n_distinct(aflw$team.name)` teams in the competition. There are `r n_distinct(aflw$player.playerId)` players. There are `r n_distinct(aflw$round.roundNumber)` rounds.
+
+## Question b
+
+```{r team-goals, fig.cap="Goals by team. Frematle and Kangaroos are very close in the number of goals, but Fremantle just edges it"}
+aflw %>% 
+  group_by(team.name) %>% 
+  summarise(goals = sum(goals)) %>% 
+  ggplot(aes(goals, reorder(team.name, goals))) +
+  geom_col(fill = "#20B2AA") +
+  labs(x = "Goals",
+       y = "Team",
+       title = "Goals by Team") +
+  theme_minimal()
+```
+
+According to \@ref(fig:team-goals), Fremantle and Kangaroos are neck-to-neck with just over 50 goals scored by each team, but Fremantle is just ahead. Based on the number of goals, **Fremantle** seems to be the team that is most likely to win if the season were completed.
+
+## Question c
+
+A pairs plot of all the numeric variables would create `r scales::comma(34^2)` total plots, of which `r sum(seq(33, 1, -1))` are scatter plots.
+
+## Question d
+
+For each player, the mean of each statistic will be calculated.
+
+```{r}
+player_summaries <- aflw %>% 
+  group_by(player.playerId) %>% 
+  summarise(across(is.numeric, mean)) %>% 
+  select(-c(round.roundNumber:player.player.player.playerJumperNumber, player.playerJumperNumber))
+```
+
+To find the pair of variables with the "L" shape, the variables pair with the highest **striated2** scagnostic is identified and plotted.
+
+```{r}
+aflw_scags %>% 
+  arrange(-striated2) %>% 
+  head(1)
+```
+
+The pair is **hitouts** and **bounces**. We can see the "L" shape below
+
+```{r }
+ggplot(player_summaries, aes(hitouts, bounces)) +
+  geom_point() +
+  theme_classic() +
+  labs(title = "Bounces vs Hitouts")
+```
+
+The figure shows that players who achieve hitouts almost exclusively never achieve bounces; conversely, players who achieve bounces almost never achieve hitouts.
+
+
+## question e
+
+To find a pair of variables with a barrier, the variables pair with the highest **monotonic** scagnostic is identified and plotted.
+
+```{r}
+aflw_scags %>% 
+  arrange(-monotonic) %>% 
+  head(1)
+```
+
+The pair is **clearances.totalClearances** and **clearances.stoppageClearances**.
+
+```{r }
+ggplot(player_summaries, aes(clearances.totalClearances, clearances.stoppageClearances)) +
+  geom_point() +
+  theme_classic() +
+  labs(x = "total clearances",
+       y = "stoppage clearances",
+       title = "Stoppage Clearances vs Total Clearances")
+```
+
+The figure shows that there is barrier of having higher stoppage clearances than total clearances, since it is impossible for that to happen.
+
+
+## question f
+
+
+```{r, eval=FALSE}
+shinyApp(
+ui <- fluidPage(
+  plotlyOutput("parcoords"),
+  verbatimTextOutput("data")),
+
+
+server <- function(input, output, session) {
+  aflw_numeric <- aflw_scags[,3:15]
+  output$parcoords <- renderPlotly({
+    dims <- Map(function(x, y) {
+      list(values = x, range = c(0,1), label = y)
+    }, aflw_numeric, names(aflw_numeric), USE.NAMES = FALSE)
+    plot_ly(type = 'parcoords', dimensions = dims,
+            source = "pcoords") %>%
+      layout(margin = list(r = 30)) %>%
+      event_register("plotly_restyle")
+  })
+
+  ranges <- reactiveValues()
+  observeEvent(event_data("plotly_restyle", source = "pcoords"),
+               {
+                 d <- event_data("plotly_restyle", source = "pcoords")
+                 # what is the relevant dimension (i.e. variable)?
+                 dimension <- as.numeric(stringr::str_extract(names(d[[1]]),
+                                                              "[0-9]+"))
+                 # If the restyle isn't related to a dimension, exit early.
+                 if (!length(dimension)) return()
+                 # careful of the indexing in JS (0) versus R (1)!
+                 dimension_name <- names(aflw_numeric)[[dimension + 1]]
+                 # a given dimension can have multiple selected ranges
+                 # these will come in as 3D arrays, but a list of vectors
+                 # is nicer to work with
+                 info <- d[[1]][[1]]
+                 ranges[[dimension_name]] <- if (length(dim(info)) == 3) {
+                   lapply(seq_len(dim(info)[2]), function(i) info[,i,])
+                 } else {
+                   list(as.numeric(info))
+                 }
+               })
+  ## filter to the rows that match the selection ranges
+  aflw_selected <- reactive({
+    keep <- TRUE
+    for (i in names(ranges)) {
+      range_ <- ranges[[i]]
+      keep_var <- FALSE
+      for (j in seq_along(range_)) {
+        rng <- range_[[j]]
+        keep_var <- keep_var | dplyr::between(aflw_scags[[i]],
+                                              min(rng), max(rng))
+      }
+      keep <- keep & keep_var
+    }
+    aflw_scags[keep, ]
+  })
+  output$data <- renderPrint({
+    tibble::as_tibble(aflw_selected())
+  })
+},
+
+options = list(height = 600)
+)
+```
+
+### i.
+
+From the parallel coordinate plot, we can see **positive** associations between some variables such as between *stringy* and *striated*, *striated* and *striated2*, *monotonic* and *splines*, and *splines* and *dcor*. We can observe **negative** associations such as between *clumpy* and *sparse*, *monotonic* and *striated2*, *splines* and *striated2*, and *dcor* and *striated2*. **Outliers** also exist in some variable combinations such as between *clumpy* and *clumpy2*. **Clusters** can also be found in the combination between *striated* and *striated2*.
+
+### ii.
+
+Pairs that have high values on convex tend to have low values on **outlying**, high values on **stringy**, low values on **striated**, moderately high values on **skewed**, medium values on **skinny**, and values across the full range on **splines**.
+
+
+### iii.
+
+Pairs of variables that have high values on skewed tend to have moderately low values on **outlying**, high values on **stringy**, high values on **striated**, and low values on **splines**.
+
+
+### iv.
+
+**marksInside50** and **disposal** is in outlier regarding the *clumpy* and *clumpy2* variables since it has high values for both variables, while for most other variable combinations, the values for *clumpy2* are very low or zero.

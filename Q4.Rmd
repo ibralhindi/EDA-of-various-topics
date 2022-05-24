@@ -1,0 +1,143 @@
+---
+title: "Exercise 4"
+date: "`r Sys.Date()`"
+output: 
+  bookdown::html_document2
+---
+
+# Exercise 4
+
+```{r}
+library(tidyverse)
+library(nullabor)
+library(kableExtra)
+```
+
+```{r}
+chol <- read_csv("data/Cholesterol_R.csv")
+vis_inf <- read_csv("data/visinf-results.csv")
+```
+
+## a.
+
+The tests to be conducted below will assess if there is a significant difference between the margarine brands in the mean of the cholesterol **reduction** after four weeks, as such a new variable measuring the cholesterol reduction after four weeks will be created, and will be the basis of the forthcoming analysis.
+
+```{r}
+# create 4 week difference variable
+chol <- chol %>% 
+  mutate(red_4weeks = Before - After4weeks)
+```
+
+
+The two-sample t-test is conducted:
+
+```{r}
+with(chol,
+     t.test(red_4weeks[Margarine == "A"],
+            red_4weeks[Margarine == "B"]))
+```
+
+The Wilcoxon rank sum test is conducted:
+
+```{r}
+with(chol,
+     wilcox.test(red_4weeks[Margarine == "A"],
+                 red_4weeks[Margarine == "B"]))
+```
+
+```{r chol-box, fig.cap="Four week reduction in cholesterol per brand. Brand B achieved one-third greater reduction than A"}
+a_mean <- round(mean((chol %>% filter(Margarine == "A"))$red_4weeks), 2)
+b_mean <- round(mean((chol %>% filter(Margarine == "B"))$red_4weeks), 2)
+
+ggplot(chol, aes(Margarine, red_4weeks)) +
+  geom_boxplot() +
+  geom_hline(yintercept = a_mean, color = "red", linetype = "dashed") +
+  geom_hline(yintercept = b_mean, color = "blue", linetype = "dashed") +
+  theme_minimal() +
+  scale_y_continuous(breaks = c(a_mean, b_mean)) +
+  theme(panel.grid = element_blank()) +
+  labs(y = "Four Weeks Reduction",
+       title = "Cholestrol Reduction After Four Weeks per Brand Boxplot") +
+  annotate("segment", x = 1.5, xend = 1.5, y = .5, yend = .64, colour = "#EC7014", size = 1,
+           arrow = arrow(ends = "last")) +
+  annotate("text", x = 1.65, y = .53, label = "33%", size = 10)
+  
+```
+
+
+
+```{r chol-density, fig.cap="Four week reduction in cholesterol per brand. Brand B achieved one-third greater reduction than A"}
+ggplot(chol, aes(red_4weeks, color = Margarine)) +
+  geom_density() +
+  geom_vline(xintercept = a_mean, color = "red", linetype = "dashed") +
+  geom_vline(xintercept = b_mean, color = "blue", linetype = "dashed") +
+  theme_minimal() +
+  scale_x_continuous(breaks = c(.2, .4, a_mean, b_mean, .8)) +
+  labs(y = "",
+       x = "Four Weeks Reduction",
+       title = "Cholestrol Reduction After Four Weeks per Brand Density Plot") +
+  theme(axis.text.y = element_blank(),
+        panel.grid = element_blank()) +
+  annotate("segment", x = .5, xend = .64, y = 0, yend = 0, colour = "#EC7014", size = 1,
+           arrow = arrow(ends = "last")) +
+  annotate("text", x = .57, y = .3, label = "33%", size = 10)
+```
+
+The p-values of both the two-sample t-test and the Wilcoxon rank sum test are both under 0.05, leading to the rejection of the null hypothesis that the means in the reduction of both brands are not significantly different. This is further supported by figures \@ref(fig:chol-box) and \@ref(fig:chol-density) which show that Margarine B achieved an approximately 33% greater reduction in cholesetrol on average than Margarine A. The figures also show that Margarine B has more observations with a greater reduction than the average reduction in cholesterol than Margarine A. It can therefore be concluded that the mean differences are significantly different between the two Margarines, and Margarine B is superior with regards to cholesterol reduction.
+
+
+## b.
+
+The lineup is constructed as follows
+
+```{r, out.width = "100%"}
+set.seed(1)
+method <- null_permute("red_4weeks")
+
+line_df <- lineup(method, true = chol, n = 10)
+
+ggplot(line_df, aes(Margarine, red_4weeks, color = Margarine)) +
+  geom_boxplot() +
+  guides(color = "none") +
+  facet_wrap(~.sample, nrow = 2) +
+  theme_bw() +
+  theme(axis.text = element_blank(),
+        axis.title = element_blank())
+
+decrypt("VrFX 0GgG 8s Lxd8g8xs A7")
+```
+
+
+```{r}
+1 - pbinom(1, 13, 0.05)
+```
+
+
+Based on the responses I received, only two people out of 13 correctly identified the true plot. The p-value is approximately equal to 0.1354, this is larger than the alpha of 0.05, therefore it can be concluded that the data adheres to the null distribution, and we fail to reject the null hypothesis that two brands are significantly different, based on the results of the lineup analysis using boxplot.
+
+
+## c.
+
+i.
+
+The power of each lineup is calculated, as well as the mean power and standard deviation for each visual statistic
+
+```{r}
+lineup_power <- vis_inf %>%
+  group_by(lineup_id, vis) %>%
+  summarise(power = mean(detected == "yes")) %>% 
+  ungroup()
+
+lineup_power
+
+lineup_power %>%
+  group_by(vis) %>%
+  summarise(mean_power = mean(power),
+            sd_power = sd(power)) %>%
+  kable(digits = 4, col.names = c("Visual Statistic", "Power Mean", "Power Standard Deviation")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+ii. 
+
+Based on the results, the dotplot is the best visual statistic as it achieved the highest power mean.

@@ -1,0 +1,195 @@
+---
+title: "Exercise 3"
+date: "`r Sys.Date()`"
+output: 
+  bookdown::html_document2
+---
+
+# Exercise 3
+
+```{r}
+library(tidyverse)
+library(nullabor)
+library(gridExtra)
+```
+
+```{r}
+control <- read_csv("data/control_data.csv") %>%
+  mutate(group = "control")
+
+experiment <- read_csv("data/experiment_data.csv") %>% 
+  mutate(group = "experiment")
+
+combined <- rbind(control, experiment) %>%
+  mutate(group = factor(group)) %>% 
+  separate(Date, into = c("wday", "day"), sep = ", ", remove = FALSE) %>% 
+  mutate(day = as.Date(day, format = "%b %e"),
+         wday = factor(wday, levels = c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")))
+```
+
+## a.
+
+```{r views-trend, fig.cap="Pageviews per group plotted over time. The two groups follow each other almost exactly"}
+ggplot(combined, aes(day, Pageviews, color = group)) +
+  geom_line(size = .7) +
+  theme_classic() +
+  scale_x_date(date_breaks = "1 week", date_labels = "%b %e") +
+  scale_y_continuous(labels = scales::label_comma()) +
+  labs(x = "Date",
+       y = "Pageviews",
+       color = "Group",
+       title = "Pageviews per Group Over Time") +
+  theme(legend.position = "bottom")
+```
+
+
+\@ref(fig:views-trend) shows that the two groups have almost the same number of pageviews per date over time.
+
+```{r views-days, fig.cap="Average pageviews per weekday. Saturdays have the lowest average pageviews"}
+combined %>% 
+  group_by(group, wday) %>% 
+  summarise(average = mean(Pageviews)) %>% 
+  ggplot(aes(wday, average, fill = group)) +
+  geom_col(position = "dodge", color = "white") +
+  scale_y_continuous(labels = scales::label_comma()) +
+  theme_classic() +
+  labs(x = "Day",
+       y = "Pageviews",
+       fill = "Group",
+       title = "Average Pageviews per Group per Weekday")
+  
+```
+
+Through \@ref(fig:views-days) we can see that Saturday has the lowest number of average pageviews. Again, we can see that the two groups match each other almost exactly per each day.
+
+## b.
+
+```{r }
+ggplot(combined, aes(Pageviews^2, Clicks^2, color = group)) +
+  geom_point() +
+  labs(color = "Group",
+       title = "Clicks vs Pageviews per Group",
+       x = "Pageviews",
+       y = "Clicks") +
+  theme_classic()
+
+```
+
+After taking the power transformation of both variables, there is a strong positive relationship linear relationship between Clicks and Pageviews, there is no difference between the two group regarding clicks.
+
+## c.
+
+```{r }
+ggplot(combined, aes(Pageviews, Enrollments, color = group)) +
+  geom_point() +
+    scale_x_sqrt() +
+    scale_y_sqrt() +
+  labs(color = "Group",
+       title = "Enrollments vs Pageviews per Group",
+       x = "Pageviews",
+       y = "Enrollments") +
+  theme_classic()
+
+```
+
+After taking the square root of both variables, we can see a positive nonlinear relationship. There is no difference between the two groups.
+
+
+## d
+
+
+```{r}
+ggplot(combined, aes(Pageviews, Payments^2, color = group)) +
+  geom_point() +
+  labs(color = "Group",
+       title = "Payments vs Pageviews per Group",
+       x = "Pageviews",
+       y = "Payments") +
+  theme_classic()
+```
+
+After taking the square of Payments, we can see a slightly positive nonlinear relationship between payments and pageviews. Again, there is no difference between the groups.
+
+
+## e.
+
+```{r metrics-area, fig.width=11, fig.cap="A comparison of the metrics counts per group. The two groups are almost identical"}
+combined_long <- combined %>% 
+  pivot_longer(cols = Pageviews:Payments,
+               names_to = "metric",
+               values_to = "count") %>% 
+  mutate(metric = factor(metric, levels = c("Pageviews", "Clicks", "Enrollments", "Payments")))
+
+ggplot(combined_long, aes(day, count/1000, fill = metric)) +
+  geom_area(alpha = .7) +
+  facet_wrap(vars(group)) +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        panel.grid = element_blank(),
+        axis.line = element_line(color = "black")) +
+  labs(x = "Day",
+       y = "Count ('000)",
+       fill = "Metric",
+       title = "Comparison of Metrics Numbers per Group")
+
+```
+
+According to \@ref(fig:metrics-area), the two groups are almost identical in terms of counts per metric per day.
+
+```{r metrics-prop, fig.cap="Average proportion of pageviews per metric per group. Again the two groups are very similar"}
+combined_prop <- combined %>% 
+  mutate(clicks_prop = Clicks / Pageviews * 100,
+         enrol_prop = Enrollments / Pageviews * 100,
+         pay_prop = Payments / Pageviews * 100)
+
+combined_prop %>% 
+  group_by(group) %>% 
+  summarise(average_clicks = mean(clicks_prop, na.rm = TRUE),
+            average_enrol = mean(enrol_prop, na.rm = TRUE),
+            average_pay = mean(pay_prop, na.rm = TRUE)) %>%
+  ungroup() %>% 
+  pivot_longer(cols = average_clicks:average_pay,
+               names_to = "metric",
+               values_to = "prop") %>% 
+  mutate(metric = factor(metric, levels = c("average_clicks", "average_enrol", "average_pay"))) %>% 
+  ggplot(aes(metric, prop, fill = group)) +
+  geom_col(position = "dodge", color = "white") +
+  geom_label(aes(label = scales::percent(prop, scale = 1, accuracy = .01)), position = position_dodge(width = .9), vjust = 0, size = 2.5, show.legend = FALSE) +
+  labs(x = "Metric",
+       y = "Proportion of Pageviews %",
+       fill = "Group",
+       title = "Average Metric as a Proportion of Views per Group") +
+  scale_x_discrete(labels = c("Clicks", "Enrollments", "Payments")) +
+  theme_classic()
+```
+
+
+\@ref(fig:metrics-prop) shows that average proportion of pageviews are almost identical per metric per group. For both groups, just over 8% of visitors click on the page, just under 2% of visitors enrol, and just under 1% of visitors make a payment.
+
+Based on all the above, the A-B test shows that no impact was made by the additional factor.
+
+
+## f.
+
+For the lineup plot, a boxplot of the clicks as a proportion of views for both groups is plotted. The method used to generate the null plots is the permute method, as both groups will be permuted in position of the boxplots in the plots of the lineup, so as to assess if there is a noticeable difference between the two groups when permuted.
+
+```{r}
+method <- null_permute("group")
+
+set.seed(1)
+line_df <- lineup(method, true = combined_prop, n = 10)
+
+line_df %>%
+  ggplot(aes(group, clicks_prop)) +
+  geom_boxplot() +
+  facet_wrap(~.sample, nrow = 2) +
+  theme(axis.text = element_blank(),
+        axis.title = element_blank())
+```
+
+
+```{r}
+decrypt("VrFX 0GgG 8s Lxd8g8xs Am")
+```
+
+Based on my own evaluation of the lineup plots, I would not distinguish the true data at position 9 to be different from the other plots, therefore the null hypothesis that there is no real difference between the two groups holds true, and the flow is practically the same between the two groups.
